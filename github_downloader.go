@@ -32,6 +32,10 @@ type GithubRelease struct {
 var ReleaseData GithubRelease
 var GithubError error
 var GithubDoneChan chan bool
+var CurrentReleaseUrl = ReleaseUrl
+var GithubIsLoading bool
+
+var githubReloadMu sync.Mutex
 
 var InstalledHash = "None"
 var LatestHash = "Unknown"
@@ -83,34 +87,15 @@ func GetGithubRelease(url, fallbackUrl string) (*GithubRelease, error) {
 }
 
 func InitGithubDownloader() {
-	GithubDoneChan = make(chan bool, 1)
-
 	IsDevInstall = os.Getenv("VENCORD_DEV_INSTALL") == "1"
 	Log.Debug("Is Dev Install: ", IsDevInstall)
 	if IsDevInstall {
+		GithubDoneChan = make(chan bool, 1)
 		GithubDoneChan <- true
 		return
 	}
 
-	go func() {
-		// Make sure UI updates once the request either finished or failed
-		defer func() {
-			GithubDoneChan <- GithubError == nil
-		}()
-
-		data, err := GetGithubRelease(ReleaseUrl, ReleaseUrlFallback)
-		if err != nil {
-			GithubError = err
-			return
-		}
-
-		ReleaseData = *data
-
-		i := strings.LastIndex(data.Name, " ") + 1
-		LatestHash = data.Name[i:]
-		Log.Debug("Finished fetching GitHub Data")
-		Log.Debug("Latest hash is", LatestHash, "Local Install is", Ternary(LatestHash == InstalledHash, "up to date!", "outdated!"))
-	}()
+	GithubDoneChan = ReloadGithubRelease(CurrentReleaseUrl)
 
 	// Check hash of installed version if exists
 	f, err := os.Open(Patcher)
@@ -131,6 +116,56 @@ func InitGithubDownloader() {
 			Log.Debug("Didn't find hash")
 		}
 	}
+}
+
+func ReloadGithubRelease(url string) chan bool {
+	done := make(chan bool, 1)
+
+	githubReloadMu.Lock()
+	if GithubIsLoading {
+		githubReloadMu.Unlock()
+		done <- false
+		return done
+	}
+	GithubIsLoading = true
+	githubReloadMu.Unlock()
+
+	go func() {
+		defer func() {
+			githubReloadMu.Lock()
+			GithubIsLoading = false
+			githubReloadMu.Unlock()
+			done <- GithubError == nil
+		}()
+
+		targetUrl := strings.TrimSpace(url)
+		if targetUrl == "" {
+			targetUrl = ReleaseUrl
+		}
+		CurrentReleaseUrl = targetUrl
+
+		fallbackUrl := ReleaseUrlFallback
+		if targetUrl != ReleaseUrl {
+			// Custom endpoints should be fetched as-is without redirecting to the default fallback.
+			fallbackUrl = targetUrl
+		}
+
+		GithubError = nil
+		data, err := GetGithubRelease(targetUrl, fallbackUrl)
+		if err != nil {
+			GithubError = err
+			return
+		}
+
+		ReleaseData = *data
+
+		i := strings.LastIndex(data.Name, " ") + 1
+		LatestHash = data.Name[i:]
+		Log.Debug("Finished fetching GitHub Data")
+		Log.Debug("Latest hash is", LatestHash, "Local Install is", Ternary(LatestHash == InstalledHash, "up to date!", "outdated!"))
+	}()
+
+	return done
 }
 
 func installLatestBuilds() (retErr error) {

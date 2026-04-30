@@ -17,6 +17,7 @@ import (
 	"image"
 	"image/color"
 	"vencordinstaller/buildinfo"
+
 	// png decoder for icon
 	_ "image/png"
 	"os"
@@ -45,6 +46,7 @@ var (
 
 	acceptedOpenAsar   bool
 	showedUpdatePrompt bool
+	customReleaseUrl   = CurrentReleaseUrl
 
 	win *g.MasterWindow
 )
@@ -59,6 +61,7 @@ func init() {
 func main() {
 	InitGithubDownloader()
 	discords = FindDiscords()
+	customReleaseUrl = CurrentReleaseUrl
 
 	customChoiceIdx = len(discords)
 
@@ -186,6 +189,18 @@ func handleErr(di *DiscordInstall, err error, action string) {
 
 func HandleScuffedInstall() {
 	g.OpenPopup("#scuffed-install")
+}
+
+func handleReloadReleaseData() {
+	if IsDevInstall {
+		return
+	}
+
+	done := ReloadGithubRelease(strings.TrimSpace(customReleaseUrl))
+	go func() {
+		<-done
+		g.Update()
+	}()
 }
 
 func (di *DiscordInstall) Patch() {
@@ -451,6 +466,24 @@ func renderInstaller() g.Widget {
 			g.Label("Please select an install to patch"),
 		),
 
+		g.Dummy(0, 5),
+		g.Style().SetFontSize(20).To(
+			g.Label("Release URL"),
+			g.Row(
+				g.InputText(&customReleaseUrl).
+					Hint("https://api.github.com/repos/.../releases/latest").
+					Size(w-170),
+				g.Style().
+					SetColor(g.StyleColorButton, DiscordBlue).
+					SetDisabled(GithubIsLoading || IsDevInstall).
+					To(
+						g.Button(Ternary(GithubIsLoading, "Reloading...", "Reload")).
+							OnClick(handleReloadReleaseData).
+							Size(150, 0),
+					),
+			),
+		),
+
 		&CondWidget{len(discords) == 0, func() g.Widget {
 			s := "No Discord installs found. You first need to install Discord."
 			if runtime.GOOS == "linux" {
@@ -528,7 +561,7 @@ func renderInstaller() g.Widget {
 			g.Row(
 				g.Style().
 					SetColor(g.StyleColorButton, DiscordGreen).
-					SetDisabled(GithubError != nil).
+					SetDisabled(GithubError != nil || GithubIsLoading).
 					To(
 						g.Button("Install").
 							OnClick(handlePatch).
@@ -537,7 +570,7 @@ func renderInstaller() g.Widget {
 					),
 				g.Style().
 					SetColor(g.StyleColorButton, DiscordBlue).
-					SetDisabled(GithubError != nil).
+					SetDisabled(GithubError != nil || GithubIsLoading).
 					To(
 						g.Button("Reinstall / Repair").
 							OnClick(func() {
@@ -663,6 +696,9 @@ func loop() {
 					func() g.Widget {
 						if IsDevInstall {
 							return g.Label("Not updating Vencord due to being in DevMode")
+						}
+						if GithubIsLoading {
+							return g.Label("Loading release data...")
 						}
 						return g.Label("Latest Vencord Version: " + LatestHash)
 					}, func() g.Widget {
