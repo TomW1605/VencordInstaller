@@ -8,12 +8,13 @@ package main
 
 import (
 	"errors"
-	"golang.org/x/sys/windows"
 	"os"
 	path "path/filepath"
 	"strings"
 	"sync"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
 var windowsNames = map[string]string{
@@ -25,6 +26,10 @@ var windowsNames = map[string]string{
 
 var killLock sync.Mutex
 
+func ParseDiscordNew(p, branch string, isFlatpak bool) *DiscordInstall {
+	return nil
+}
+
 func ParseDiscord(p, branch string) *DiscordInstall {
 	entries, err := os.ReadDir(p)
 	if err != nil {
@@ -35,22 +40,21 @@ func ParseDiscord(p, branch string) *DiscordInstall {
 	}
 
 	isPatched := false
-	appPath := ""
+	resourcesPath := ""
 	for _, dir := range entries {
 		if dir.IsDir() && strings.HasPrefix(dir.Name(), "app-") {
 			resources := path.Join(p, dir.Name(), "resources")
 			if !ExistsFile(resources) {
 				continue
 			}
-			app := path.Join(resources, "app")
-			if app > appPath {
-				appPath = app
-				isPatched = ExistsFile(path.Join(resources, "_app.asar"))
+			if resources > resourcesPath {
+				resourcesPath = resources
+				isPatched = isResourcesFolderPatched(resources)
 			}
 		}
 	}
 
-	if appPath == "" {
+	if resourcesPath == "" {
 		return nil
 	}
 
@@ -59,12 +63,11 @@ func ParseDiscord(p, branch string) *DiscordInstall {
 	}
 
 	return &DiscordInstall{
-		path:             p,
-		branch:           branch,
-		appPath:          appPath,
-		isPatched:        isPatched,
-		isFlatpak:        false,
-		isSystemElectron: false,
+		path:          p,
+		branch:        branch,
+		resourcesPath: resourcesPath,
+		isPatched:     isPatched,
+		isFlatpak:     false,
 	}
 }
 
@@ -90,7 +93,7 @@ func FindDiscords() []any {
 func PreparePatch(di *DiscordInstall) {
 	killLock.Lock()
 	defer killLock.Unlock()
-	
+
 	name := windowsNames[di.branch]
 	Log.Debug("Trying to kill", name)
 	pid := findProcessIdByName(name + ".exe")

@@ -12,15 +12,17 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/fatih/color"
-	"github.com/manifoldco/promptui"
 	"os"
-	"slices"
+	"runtime"
 	"strings"
 	"vencordinstaller/buildinfo"
+
+	"github.com/fatih/color"
+	"github.com/manifoldco/promptui"
 )
 
 var discords []any
+var interactive = false
 
 func isValidBranch(branch string) bool {
 	switch branch {
@@ -88,13 +90,15 @@ func main() {
 
 	if *installFlag || *updateFlag {
 		if !<-GithubDoneChan {
-			die("Not " + Ternary(*installFlag, "installing", "updating") + " as fetching release data failed")
+			die("Not " + Ternary(*installFlag, "installing", "updating") + " as fetching release data failed. If this issue persists, see https://vencord.dev/support")
 		}
 	}
 
 	install, uninstall, update, installOpenAsar, uninstallOpenAsar := *installFlag, *uninstallFlag, *updateFlag, *installOpenAsarFlag, *uninstallOpenAsarFlag
 	switches := []*bool{&install, &update, &uninstall, &installOpenAsar, &uninstallOpenAsar}
-	if !slices.ContainsFunc(switches, func(b *bool) bool { return *b }) {
+	if !SliceContainsFunc(switches, func(b *bool) bool { return *b }) {
+		interactive = true
+
 		go func() {
 			<-SelfUpdateCheckDoneChan
 			if IsSelfOutdated {
@@ -133,7 +137,7 @@ func main() {
 			exitSuccess()
 		}
 
-		*switches[slices.Index(choices, choice)] = true
+		*switches[SliceIndex(choices, choice)] = true
 	}
 
 	var err error
@@ -176,19 +180,28 @@ func main() {
 	exitSuccess()
 }
 
+func exit(status int) {
+	if runtime.GOOS == "windows" && IsDoubleClickRun() && interactive {
+		fmt.Print("Press Enter to exit")
+		var b byte
+		_, _ = fmt.Scanf("%v", &b)
+	}
+	os.Exit(status)
+}
+
 func exitSuccess() {
 	color.HiGreen("✔ Success!")
-	os.Exit(0)
+	exit(0)
 }
 
 func exitFailure() {
-	color.HiRed("❌ Failed!")
-	os.Exit(1)
+	color.HiRed("❌ Failed! If this issue persists, see https://vencord.dev/support")
+	exit(1)
 }
 
 func handlePromptError(err error) {
 	if errors.Is(err, promptui.ErrInterrupt) {
-		os.Exit(0)
+		exit(0)
 	}
 
 	Log.FatalIfErr(err)
@@ -204,7 +217,7 @@ func PromptDiscord(action, dir, branch string) *DiscordInstall {
 				}
 			}
 		}
-		die("No Discord install found. Try manually specifying it with the --dir flag. Hint: snap is not supported")
+		die("No Discord install found. Before proceeding, make sure Discord is installed. snap is not supported!")
 	}
 
 	if branch != "" {
@@ -220,15 +233,19 @@ func PromptDiscord(action, dir, branch string) *DiscordInstall {
 	if dir != "" {
 		if discord := ParseDiscord(dir, branch); discord != nil {
 			return discord
-		} else {
-			die(dir + " is not a valid Discord install. Hint: snap is not supported")
 		}
+
+		if discord := ParseDiscordNew(dir, branch, strings.Contains(dir, "com.discordapp")); discord != nil {
+			return discord
+		}
+
+		die(dir + " is not a valid Discord install. Hint: snap is not supported")
 	}
 
 	items := SliceMap(discords, func(d any) string {
 		install := d.(*DiscordInstall)
 		//goland:noinspection GoDeprecation
-		return fmt.Sprintf("%s - %s%s", strings.Title(install.branch), install.path, Ternary(install.isPatched, " [PATCHED]", ""))
+		return fmt.Sprintf("%s - %s%s", strings.Title(install.branch), install.path, Ternary(install.isPatched, " [Vencord Installed]", ""))
 	})
 	items = append(items, "Custom Location")
 
@@ -239,7 +256,7 @@ func PromptDiscord(action, dir, branch string) *DiscordInstall {
 	handlePromptError(err)
 
 	if choice != "Custom Location" {
-		return discords[slices.Index(items, choice)].(*DiscordInstall)
+		return discords[SliceIndex(items, choice)].(*DiscordInstall)
 	}
 
 	for {
@@ -252,11 +269,19 @@ func PromptDiscord(action, dir, branch string) *DiscordInstall {
 			return di
 		}
 
+		if di := ParseDiscordNew(custom, "", strings.Contains(custom, "com.discordapp")); di != nil {
+			return di
+		}
+
 		Log.Error("Invalid Discord install!")
 	}
 }
 
 func InstallLatestBuilds() error {
+	if IsDevInstall {
+		return nil
+	}
+
 	return installLatestBuilds()
 }
 

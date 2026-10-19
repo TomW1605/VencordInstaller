@@ -7,6 +7,7 @@
 package main
 
 import (
+	"os"
 	path "path/filepath"
 	"strings"
 )
@@ -18,13 +19,17 @@ var macosNames = map[string]string{
 	"dev":    "Discord Development.app",
 }
 
+func ParseDiscordNew(p, branch string, isFlatpak bool) *DiscordInstall {
+	return nil
+}
+
 func ParseDiscord(p, branch string) *DiscordInstall {
 	if !ExistsFile(p) {
 		return nil
 	}
 
 	resources := path.Join(p, "/Contents/Resources")
-	if !ExistsFile(resources) {
+	if !isResourcesFolderValid(resources) {
 		return nil
 	}
 
@@ -32,24 +37,28 @@ func ParseDiscord(p, branch string) *DiscordInstall {
 		branch = GetBranch(strings.TrimSuffix(p, ".app"))
 	}
 
-	app := path.Join(resources, "app")
 	return &DiscordInstall{
-		path:             p,
-		branch:           branch,
-		appPath:          app,
-		isPatched:        ExistsFile(path.Join(resources, "_app.asar")),
-		isFlatpak:        false,
-		isSystemElectron: false,
+		path:          p,
+		branch:        branch,
+		resourcesPath: resources,
+		isPatched:     isResourcesFolderPatched(resources),
+		isFlatpak:     false,
 	}
 }
 
 func FindDiscords() []any {
 	var discords []any
+	bases := []string{
+		"/Applications",
+		path.Join(os.Getenv("HOME"), "Applications"),
+	}
 	for branch, dirname := range macosNames {
-		p := "/Applications/" + dirname
-		if discord := ParseDiscord(p, branch); discord != nil {
-			Log.Debug("Found Discord Install at", p)
-			discords = append(discords, discord)
+		for _, base := range bases {
+			p := path.Join(base, dirname)
+			if discord := ParseDiscord(p, branch); discord != nil {
+				Log.Debug("Found Discord Install at", p)
+				discords = append(discords, discord)
+			}
 		}
 	}
 	return discords
