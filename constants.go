@@ -13,10 +13,10 @@ import (
 
 const ReleaseUrl = "https://api.github.com/repos/TomW1605/Vencord/releases/latest"
 const ReleaseUrlFallback = "https://vencord.dev/releases/vencord"
-const InstallerReleaseUrl = "https://api.github.com/repos/Vencord/Installer/releases/latest"
+const InstallerReleaseUrl = "https://api.github.com/repos/TomW1605/VencordInstaller/releases/latest"
 const InstallerReleaseUrlFallback = "https://vencord.dev/releases/installer"
 
-var UserAgent = "VencordInstaller/" + buildinfo.InstallerGitHash + " (https://github.com/Vencord/Installer)"
+var UserAgent = "VencordInstaller/" + buildinfo.InstallerGitHash + " (https://github.com/TomW1605/VencordInstaller)"
 
 var (
 	DiscordGreen        = color.RGBA{0, 133, 69, 0xff}
