@@ -1,8 +1,8 @@
 name: Submit to Winget Community Repo
 
 on:
-  release:
-    types: [published]
+#  release:
+#    types: [published]
   workflow_dispatch:
     inputs:
       tag:
